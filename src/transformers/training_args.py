@@ -389,6 +389,8 @@ class TrainingArguments:
             Random seed to be used with data samplers. If not set, random generators for data sampling will use the
             same seed as `seed`. This can be used to ensure reproducibility of data sampling, independent of the model
             seed.
+        shuffle_dataset (`bool`, *optional*, defaults to `True`):
+            Whether to shuffle the training dataset.
         jit_mode_eval (`bool`, *optional*, defaults to `False`):
             Whether or not to use PyTorch jit trace for inference.
         bf16 (`bool`, *optional*, defaults to `False`):
@@ -1054,6 +1056,10 @@ class TrainingArguments:
     )
     seed: int = field(default=42, metadata={"help": "Random seed that will be set at the beginning of training."})
     data_seed: Optional[int] = field(default=None, metadata={"help": "Random seed to be used with data samplers."})
+    shuffle_dataset: Optional[bool] = field(
+        default=True,
+        metadata={"help": "Whether to shuffle the training dataset."},
+    )
     jit_mode_eval: bool = field(
         default=False, metadata={"help": "Whether or not to use PyTorch jit trace for inference"}
     )

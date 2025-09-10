@@ -1076,8 +1076,11 @@ class Trainer:
                 lengths=lengths,
                 model_input_name=model_input_name,
             )
-
+        elif not self.args.shuffle_dataset:
+            print("[WARNING] shuffle_dataset is set to False, the training data will be traversed sequentially.")
+            return SequentialSampler(train_dataset)
         else:
+            print("[WARNING] shuffle_dataset is set to True, the training data will be shuffled.")
             return RandomSampler(train_dataset)
 
     def _get_dataloader(
@@ -2374,6 +2377,10 @@ class Trainer:
         logger.debug(f"Currently training with a batch size of: {self._train_batch_size}")
         # Data loader and number of training steps
         train_dataloader = self.get_train_dataloader()
+
+        logger.debug("================train_dataloader===============")
+        logger.debug(f"train_dataloader length: {len(train_dataloader)}")
+
         if self.is_fsdp_xla_v2_enabled:
             train_dataloader = tpu_spmd_dataloader(train_dataloader)
 
@@ -2392,6 +2399,15 @@ class Trainer:
             len_dataloader,
             max_steps,
         ) = self.set_initial_training_values(args, train_dataloader, total_train_batch_size)
+
+        logger.debug("================Training Information===============")
+        logger.debug(f"num_train_epochs: {num_train_epochs}")
+        logger.debug(f"num_update_steps_per_epoch: {num_update_steps_per_epoch}")
+        logger.debug(f"num_examples: {num_examples}")
+        logger.debug(f"num_train_samples: {num_train_samples}")
+        logger.debug(f"epoch_based: {epoch_based}")
+        logger.debug(f"len_dataloader: {len_dataloader}")
+        logger.debug(f"max_steps: {max_steps}")
 
         num_train_tokens = None
         if self.args.include_tokens_per_second:
@@ -2618,7 +2634,99 @@ class Trainer:
             for _ in range(total_updates):
                 update_step += 1
                 num_batches = args.gradient_accumulation_steps if update_step != (total_updates - 1) else remainder
+                logger.debug(num_batches)
                 batch_samples, num_items_in_batch = self.get_batch_samples(epoch_iterator, num_batches, args.device)
+                logger.debug(f"=========================== update_step: {update_step} ===========================")
+                logger.debug(f"num_items_in_batch: {num_items_in_batch}" if num_items_in_batch is not None else "None")
+                logger.debug(f"len(batch_samples): {len(batch_samples)}" if batch_samples is not None else "None")
+                # logger.debug(f"batch_samples: {batch_samples}" if batch_samples is not None else "None")
+
+                # Initialize metrics dict for this step
+                if not hasattr(self, "_current_step_metrics"):
+                    self._current_step_metrics = {}
+
+                # display how many 0 in batch_samples.attention_mask
+                if isinstance(batch_samples, (list, tuple)) and len(batch_samples) > 0:
+                    if isinstance(batch_samples[0], dict) and "attention_mask" in batch_samples[0]:
+                        total_zeros = 0
+                        total_elements = 0
+                        # Per-rank metrics for attention_mask
+                        rank_attention_mask_zeros = []
+                        for bs in batch_samples:
+                            attention_mask = bs["attention_mask"]
+                            zeros_in_batch = (attention_mask == 0).sum().item()
+                            total_zeros += zeros_in_batch
+                            total_elements += attention_mask.numel()
+                            rank_attention_mask_zeros.append(zeros_in_batch)
+                        logger.debug(
+                            f"attention_mask: {total_zeros} zeros, {total_elements} elements, {total_zeros / total_elements:.2%} sparsity"
+                        )
+                        # Store metrics for wandb logging
+                        current_rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
+                        self._current_step_metrics[f"num_attention_mask_eq0_rank_{current_rank}"] = total_zeros
+                elif isinstance(batch_samples, dict) and "attention_mask" in batch_samples:
+                    attention_mask = batch_samples["attention_mask"]
+                    total_zeros = (attention_mask == 0).sum().item()
+                    total_elements = attention_mask.numel()
+                    logger.debug(
+                        f"attention_mask: {total_zeros} zeros, {total_elements} elements, {total_zeros / total_elements:.2%} sparsity"
+                    )
+                    # Store metrics for wandb logging
+                    current_rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
+                    self._current_step_metrics[f"num_attention_mask_eq0_rank_{current_rank}"] = total_zeros
+
+                # display how many 1 in batch_samples.position_ids
+                if isinstance(batch_samples, (list, tuple)) and len(batch_samples) > 0:
+                    if isinstance(batch_samples[0], dict) and "position_ids" in batch_samples[0]:
+                        total_ones = 0
+                        total_elements = 0
+                        for bs in batch_samples:
+                            position_ids = bs["position_ids"]
+                            total_ones += (position_ids == 1).sum().item()
+                            total_elements += position_ids.numel()
+                        logger.debug(
+                            f"position_ids: {total_ones} ones, {total_elements} elements, {total_ones / total_elements:.2%} density"
+                        )
+                        # Store metrics for wandb logging
+                        current_rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
+                        self._current_step_metrics[f"num_position_ids_eq1_rank_{current_rank}"] = total_ones
+                elif isinstance(batch_samples, dict) and "position_ids" in batch_samples:
+                    position_ids = batch_samples["position_ids"]
+                    total_ones = (position_ids == 1).sum().item()
+                    total_elements = position_ids.numel()
+                    logger.debug(
+                        f"position_ids: {total_ones} ones, {total_elements} elements, {total_ones / total_elements:.2%} density"
+                    )
+                    # Store metrics for wandb logging
+                    current_rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
+                    self._current_step_metrics[f"num_position_ids_eq1_rank_{current_rank}"] = total_ones
+
+                # display how many -100 (padding index) in batch_samples.labels
+                if isinstance(batch_samples, (list, tuple)) and len(batch_samples) > 0:
+                    if isinstance(batch_samples[0], dict) and "labels" in batch_samples[0]:
+                        total_neg_100 = 0
+                        total_elements = 0
+                        for bs in batch_samples:
+                            labels = bs["labels"]
+                            total_neg_100 += (labels == -100).sum().item()
+                            total_elements += labels.numel()
+                        logger.debug(
+                            f"labels: {total_neg_100} -100, {total_elements} elements, {total_neg_100 / total_elements:.2%} sparsity"
+                        )
+                        # Store metrics for wandb logging
+                        current_rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
+                        self._current_step_metrics[f"num_labels_eq_neg100_rank_{current_rank}"] = total_neg_100
+                elif isinstance(batch_samples, dict) and "labels" in batch_samples:
+                    labels = batch_samples["labels"]
+                    total_neg_100 = (labels == -100).sum().item()
+                    total_elements = labels.numel()
+                    logger.debug(
+                        f"labels: {total_neg_100} -100, {total_elements} elements, {total_neg_100 / total_elements:.2%} sparsity"
+                    )
+                    # Store metrics for wandb logging
+                    current_rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
+                    self._current_step_metrics[f"num_labels_eq_neg100_rank_{current_rank}"] = total_neg_100
+
                 # Store the number of batches for current gradient accumulation
                 # This is used to correctly scale the loss when the last accumulation step has fewer batches
                 self.current_gradient_accumulation_steps = len(batch_samples)
@@ -2657,7 +2765,19 @@ class Trainer:
                                 input_tokens = inputs[main_input_name].numel()
 
                             input_tokens = torch.tensor(input_tokens, device=self.args.device, dtype=torch.int64)
-                            self.state.num_input_tokens_seen += self.accelerator.gather(input_tokens).sum().item()
+                            gathered_input_tokens_cur_step = self.accelerator.gather(input_tokens).sum().item()
+                            self.state.num_input_tokens_seen += gathered_input_tokens_cur_step
+
+                            print(
+                                f"input_tokens: {input_tokens} in rank {torch.distributed.get_rank()}, gathered_input_tokens_cur_step: {gathered_input_tokens_cur_step}"
+                            )
+
+                            # Store gathered_input_tokens_cur_step for logging
+                            if not hasattr(self, "_current_step_metrics"):
+                                self._current_step_metrics = {}
+                            self._current_step_metrics["gathered_input_tokens_cur_step"] = (
+                                gathered_input_tokens_cur_step
+                            )
                     if rng_to_sync:
                         self._load_rng_state(resume_from_checkpoint)
                         rng_to_sync = False
@@ -3231,6 +3351,12 @@ class Trainer:
                 logs["learning_rate"] = learning_rate
             else:
                 logs["learning_rate"] = self._get_learning_rate()
+
+            # Add custom metrics for wandb logging
+            if hasattr(self, "_current_step_metrics") and self._current_step_metrics:
+                logs.update(self._current_step_metrics)
+                # Clear metrics after logging
+                self._current_step_metrics = {}
 
             self._total_loss_scalar += tr_loss_scalar
             self._globalstep_last_logged = self.state.global_step
@@ -5596,7 +5722,7 @@ class Trainer:
 
     def get_batch_samples(
         self, epoch_iterator: Iterator, num_batches: int, device: torch.device
-    ) -> tuple[list, Optional[Union[torch.Tensor, int]]]:
+    ) -> tuple[list, Optional[torch.Tensor]]:
         """
         Collects a specified number of batches from the epoch iterator and optionally counts the number of items in the batches to properly scale the loss.
         """
