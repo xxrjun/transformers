@@ -1059,6 +1059,11 @@ class Trainer:
 
         # Build the sampler.
         if self.args.group_by_length:
+            if not self.args.shuffle_dataset:
+                logger.warning(
+                    "group_by_length=True is incompatible with shuffle_dataset=False. The training dataset may not be in order."
+                )
+                self.args.shuffle_dataset = True
             if is_datasets_available() and isinstance(train_dataset, datasets.Dataset):
                 lengths = (
                     train_dataset[self.args.length_column_name]

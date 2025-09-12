@@ -390,7 +390,7 @@ class TrainingArguments:
             same seed as `seed`. This can be used to ensure reproducibility of data sampling, independent of the model
             seed.
         shuffle_dataset (`bool`, *optional*, defaults to `True`):
-            Whether to shuffle the training dataset.
+            Whether to shuffle the training dataset. If group_by_length is enabled, the training dataset may not be in order.
         jit_mode_eval (`bool`, *optional*, defaults to `False`):
             Whether or not to use PyTorch jit trace for inference.
         bf16 (`bool`, *optional*, defaults to `False`):
