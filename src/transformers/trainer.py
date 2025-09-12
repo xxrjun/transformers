@@ -2378,9 +2378,6 @@ class Trainer:
         # Data loader and number of training steps
         train_dataloader = self.get_train_dataloader()
 
-        logger.debug("================train_dataloader===============")
-        logger.debug(f"train_dataloader length: {len(train_dataloader)}")
-
         if self.is_fsdp_xla_v2_enabled:
             train_dataloader = tpu_spmd_dataloader(train_dataloader)
 
@@ -2399,15 +2396,6 @@ class Trainer:
             len_dataloader,
             max_steps,
         ) = self.set_initial_training_values(args, train_dataloader, total_train_batch_size)
-
-        logger.debug("================Training Information===============")
-        logger.debug(f"num_train_epochs: {num_train_epochs}")
-        logger.debug(f"num_update_steps_per_epoch: {num_update_steps_per_epoch}")
-        logger.debug(f"num_examples: {num_examples}")
-        logger.debug(f"num_train_samples: {num_train_samples}")
-        logger.debug(f"epoch_based: {epoch_based}")
-        logger.debug(f"len_dataloader: {len_dataloader}")
-        logger.debug(f"max_steps: {max_steps}")
 
         num_train_tokens = None
         if self.args.include_tokens_per_second:
@@ -3355,7 +3343,6 @@ class Trainer:
             # Add custom metrics for wandb logging
             if hasattr(self, "_current_step_metrics") and self._current_step_metrics:
                 logs.update(self._current_step_metrics)
-                # Clear metrics after logging
                 self._current_step_metrics = {}
 
             self._total_loss_scalar += tr_loss_scalar
@@ -5722,7 +5709,7 @@ class Trainer:
 
     def get_batch_samples(
         self, epoch_iterator: Iterator, num_batches: int, device: torch.device
-    ) -> tuple[list, Optional[torch.Tensor]]:
+    ) -> tuple[list, Optional[Union[torch.Tensor, int]]]:
         """
         Collects a specified number of batches from the epoch iterator and optionally counts the number of items in the batches to properly scale the loss.
         """
