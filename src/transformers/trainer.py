@@ -1077,10 +1077,9 @@ class Trainer:
                 model_input_name=model_input_name,
             )
         elif not self.args.shuffle_dataset:
-            print("[WARNING] shuffle_dataset is set to False, the training data will be traversed sequentially.")
+            logger.warning("shuffle_dataset is set to False, the training data will be traversed sequentially.")
             return SequentialSampler(train_dataset)
         else:
-            print("[WARNING] shuffle_dataset is set to True, the training data will be shuffled.")
             return RandomSampler(train_dataset)
 
     def _get_dataloader(
@@ -2756,7 +2755,7 @@ class Trainer:
                             gathered_input_tokens_cur_step = self.accelerator.gather(input_tokens).sum().item()
                             self.state.num_input_tokens_seen += gathered_input_tokens_cur_step
 
-                            print(
+                            logger.info(
                                 f"input_tokens: {input_tokens} in rank {torch.distributed.get_rank()}, gathered_input_tokens_cur_step: {gathered_input_tokens_cur_step}"
                             )
 
